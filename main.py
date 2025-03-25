@@ -1,5 +1,4 @@
 import os
-import tempfile
 import threading
 import time
 from types import SimpleNamespace
@@ -7,9 +6,7 @@ from types import SimpleNamespace
 import cv2
 import mediapipe as mp
 import numpy as np
-import pygame
-import pyttsx3
-import simpleaudio as sa
+from gtts import gTTS
 from kivy.app import App
 from kivy.clock import Clock
 from kivy.core.window import Window
@@ -23,16 +20,16 @@ from kivy.uix.image import Image
 from kivy.uix.label import Label
 from mediapipe.tasks import python
 from mediapipe.tasks.python.vision import GestureRecognizer
-# from pygrabber.dshow_graph import FilterGraph
-from ultralytics import YOLO  # Import YOLO
+from ultralytics import YOLO
 
-# Get current directory
+# Global variables
 current_dir = os.path.dirname(os.path.abspath(__file__))
-
-# Model paths
 gesture_model_path = os.path.join(current_dir, 'gesture_recognizer.task')
+latest_result = None
+latest_objects = []
+active_gesture = None
 
-# Load gesture model file as binary data
+# Read gesture model
 with open(gesture_model_path, 'rb') as f:
     gesture_model_data = f.read()
 
@@ -42,29 +39,185 @@ GestureRecognizer = mp.tasks.vision.GestureRecognizer
 GestureRecognizerOptions = mp.tasks.vision.GestureRecognizerOptions
 GestureRecognizerResult = mp.tasks.vision.GestureRecognizerResult
 VisionRunningMode = mp.tasks.vision.RunningMode
-
-# Add MediaPipe Hands
 mp_hands = mp.solutions.hands
 mp_drawing = mp.solutions.drawing_utils
 mp_drawing_styles = mp.solutions.drawing_styles
 
-# Global variables for results
-latest_result = None
-latest_objects = []
-active_gesture = None
-speech_engine = None
+
+# Thread-safe TTS manager
+class TTSManager:
+    def __init__(self):
+        self.tts_lock = threading.Lock()
+        self.is_busy = False
+        self.current_thread = None
+        self.queue = []
+        self.queue_lock = threading.Lock()
+        self.running = True  # Set this BEFORE starting the thread
+        self.queue_thread = threading.Thread(target=self._process_queue, daemon=True)
+        self.queue_thread.start()
+
+    def _process_queue(self):
+        """Worker thread that processes the audio queue"""
+        while self.running:
+            task = None
+            with self.queue_lock:
+                if self.queue:
+                    task = self.queue.pop(0)
+
+            if task:
+                task_type, content = task
+                if task_type == "tts":
+                    self._speak(content)
+                elif task_type == "file":
+                    self._play_sound_file(content)
+            else:
+                time.sleep(0.1)  # Sleep when queue is empty
+
+    def stop(self):
+        """Stop any ongoing speech and clear queue"""
+        with self.queue_lock:
+            self.queue = []
+        try:
+            if self.current_thread and self.current_thread.is_alive():
+                self.is_busy = False  # Signal the thread to terminate early
+        except Exception as e:
+            print(f"Error stopping TTS: {e}")
+
+    def _speak(self, text):
+        """Internal method to speak text (called by queue processor)"""
+        try:
+            self.is_busy = True
+            with self.tts_lock:
+                print(f"[TTS] Speaking: '{text}'")
+
+                # Create a unique filename in project directory
+                import uuid
+                temp_filename = f"speech_{uuid.uuid4().hex[:8]}.mp3"
+                temp_file = os.path.join(os.path.dirname(os.path.abspath(__file__)), temp_filename)
+
+                # Generate speech file
+                tts = gTTS(text=text, lang='en')
+                tts.save(temp_file)
+
+                # Play using pygame
+                try:
+                    import pygame
+                    pygame.mixer.init()
+                    pygame.mixer.music.load(temp_file)
+                    pygame.mixer.music.play()
+
+                    # Wait for playback to complete
+                    while pygame.mixer.music.get_busy():
+                        time.sleep(0.1)
+
+                    pygame.mixer.quit()
+                except Exception as e:
+                    print(f"Error playing audio: {e}")
+
+                # Clean up after playback
+                try:
+                    if os.path.exists(temp_file):
+                        os.remove(temp_file)
+                except Exception as e:
+                    print(f"Error removing temp file: {e}")
+
+        except Exception as e:
+            print(f"TTS error: {e}")
+        finally:
+            self.is_busy = False
+
+    def speak(self, text, block=False):
+        """Add TTS speech to the queue"""
+        if block:
+            self._speak(text)
+        else:
+            with self.queue_lock:
+                self.queue.append(("tts", text))
+        return True
+
+    def _play_sound_file(self, sound_file):
+        """Internal method to play sound file (called by queue processor)"""
+        try:
+            if not os.path.exists(sound_file):
+                print(f"Sound file not found: {sound_file}")
+                return False
+
+            self.is_busy = True
+            try:
+                import pygame
+
+                # Only initialize once and don't quit between plays
+                if not hasattr(pygame.mixer, 'init') or not pygame.mixer.get_init():
+                    pygame.mixer.init()
+                    print(f"Initialized pygame mixer for: {sound_file}")
+
+                # Print debug info
+                print(f"Playing sound file: {sound_file}")
+
+                # Load and play sound
+                sound = pygame.mixer.Sound(sound_file)
+                channel = sound.play()
+
+                # Wait for playback to complete
+                while channel.get_busy():
+                    time.sleep(0.1)
+
+            except Exception as e:
+                print(f"Error playing sound file: {sound_file}")
+                print(f"Error details: {e}")
+
+                # Try alternative with playsound as fallback
+                try:
+                    from playsound import playsound
+                    playsound(sound_file, block=True)
+                except Exception as e2:
+                    print(f"Fallback playsound also failed: {e2}")
+
+            finally:
+                self.is_busy = False
+
+        except Exception as e:
+            print(f"Error setting up sound playback: {e}")
+            return False
+
+    def play_file(self, sound_file):
+        """Add sound file to the queue"""
+        with self.queue_lock:
+            self.queue.append(("file", sound_file))
+        return True
+
+# Global TTS instance
+tts_manager = TTSManager()
 
 
+def play_audio_sequence(sound_file=None, tts_text=None):
+    """Queue sound file and TTS text to play in sequence"""
+    try:
+        if sound_file:
+            tts_manager.play_file(sound_file)
+        if tts_text:
+            tts_manager.speak(tts_text)
+    except Exception as e:
+        print(f"Audio playback error: {e}")
 
-# Callback function for gesture recognition
+
+# Gesture recognition callback with built-in debouncing
+last_gesture_time = 0
+
+
 def print_result(result: GestureRecognizerResult, output_image: mp.Image, timestamp_ms: int):
-    global latest_result, active_gesture
+    global latest_result, active_gesture, last_gesture_time
+
+    # Debounce gestures (300ms minimum time between gestures)
+    current_time = time.time()
+    if current_time - last_gesture_time < 0.3:
+        return
 
     # Gesture-specific confidence thresholds
     thresholds = {
         "Thumb_Up": 0.6,
         "Thumb_Down": 0.5,
-        "Victory": 0.35,  # Lower threshold for Victory
+        "Victory": 0.35,
         "Closed_Fist": 0.6,
         "Open_Palm": 0.6,
         "Pointing_Up": 0.6
@@ -86,63 +239,10 @@ def print_result(result: GestureRecognizerResult, output_image: mp.Image, timest
         if confidence > threshold and gesture_name != 'None':
             active_gesture = gesture_name
             latest_result = gesture_name
+            last_gesture_time = current_time  # Update debounce timestamp
             print(f'*** ACCEPTED gesture: {gesture_name} with confidence {confidence:.2f} ***')
         else:
             print(f'Rejected gesture: {gesture_name} (confidence {confidence:.2f} below threshold {threshold:.2f})')
-
-
-def play_audio_sequence(sound_file=None, tts_text=None):
-    """Play sound file or TTS text using simpleaudio with direct WAV generation"""
-    try:
-        # Play sound files (must be WAV for simpleaudio)
-        if sound_file and os.path.exists(sound_file):
-            try:
-                wave_obj = sa.WaveObject.from_wave_file(sound_file)
-                play_obj = wave_obj.play()
-                # Non-blocking by default
-            except Exception as e:
-                print(f"Error playing sound file: {e}")
-
-        # For TTS text, generate WAV directly with pyttsx3 (no MP3 conversion needed)
-        if tts_text:
-            print(f"[DEBUG] Starting TTS: '{tts_text}'")
-            try:
-                # Create unique temporary WAV file
-                temp_filename = tempfile.mktemp(suffix='.wav')
-
-                # Initialize TTS engine
-                engine = pyttsx3.init()
-                engine.setProperty('rate', 150)  # Speed
-                engine.setProperty('volume', 0.9)  # Volume
-
-                # Generate WAV file directly
-                engine.save_to_file(tts_text, temp_filename)
-                engine.runAndWait()
-                engine.stop()
-
-                # Play the WAV with simpleaudio
-                if os.path.exists(temp_filename):
-                    wave_obj = sa.WaveObject.from_wave_file(temp_filename)
-                    play_obj = wave_obj.play()
-
-                    # Clean up file after playback
-                    def cleanup():
-                        try:
-                            # Give enough time for playback to complete
-                            time.sleep(0.5)
-                            if os.path.exists(temp_filename):
-                                os.remove(temp_filename)
-                                print("[DEBUG] Temp file removed")
-                        except Exception as e:
-                            print(f"Cleanup error: {e}")
-
-                    threading.Thread(target=cleanup, daemon=True).start()
-
-                print("[DEBUG] TTS processing completed")
-            except Exception as e:
-                print(f"TTS error: {e}")
-    except Exception as e:
-        print(f"Audio playback error: {e}")
 
 
 # Model configuration for gesture recognition
@@ -218,13 +318,13 @@ class KivyCameraApp(App):
                 aspect_ratio = w / h
                 new_width = int(Window.height * aspect_ratio)
                 cv2.resize(frame, (new_width, Window.height), frame)
-    
+
     def build(self):
         self.layout = CameraView()
 
         # Camera selection setup
         self.available_cameras = self.get_available_cameras()
-        self.current_camera_index = 0  # Default camera
+        self.current_camera_index = 1  # Default camera
         self.setup_camera_dropdown()
 
         # Initialize camera
@@ -244,17 +344,17 @@ class KivyCameraApp(App):
         self.zoom_object_index = 0
         self.zoom_level = 1.0
         self.welcome_played = False
+        self.processing_gesture = False  # Lock for gesture processing
 
         # Initialize MediaPipe Hands for gesture detection
-        self.hands = mp_hands.Hands(
-            static_image_mode=False,
-            max_num_hands=1,
-            min_detection_confidence=0.5,
-            min_tracking_confidence=0.5
-        )
-
-        pygame.quit()  # Clean up any existing pygame instances
-        pygame.init()
+        try:
+            self.hands = mp_hands.Hands(
+                static_image_mode=False,
+                max_num_hands=1,
+                min_detection_confidence=0.5,
+                min_tracking_confidence=0.5)
+        except Exception as e:
+            print(f"Error initializing MediaPipe Hands: {e}")
 
         # Initialize gesture recognizer
         self.recognizer = GestureRecognizer.create_from_options(gesture_options)
@@ -267,11 +367,10 @@ class KivyCameraApp(App):
         return self.layout
 
     def get_available_cameras(self):
-        """Get list of available cameras using pygrabber"""
+        """Get list of available cameras"""
         try:
-            #graph = FilterGraph()
-            #devices = graph.get_input_devices()
-            return ''
+            # Simplified to avoid dependency
+            return ["Default Camera"]
         except Exception as e:
             print(f"Error getting camera list: {e}")
             return ["Default Camera"]  # Fallback
@@ -426,7 +525,9 @@ class KivyCameraApp(App):
                         self.last_timestamp = timestamp_ms
 
                 # Check for Closed_Fist to reset
-                if latest_result == "Closed_Fist":
+                if latest_result == "Closed_Fist" and not self.processing_gesture:
+                    self.processing_gesture = True
+
                     if self.last_detected_gesture == "Closed_Fist":
                         self.gesture_confidence_counter += 1
                     else:
@@ -440,13 +541,16 @@ class KivyCameraApp(App):
                         self.zoom_level = 1.0
                         self.zoom_object_index = 0
                         Clock.schedule_once(lambda dt: self.reset_system(), 1.5)
+                        play_audio_sequence(tts_text="Resetting system.")
 
                         # Display the message on the captured frame
                         cv2.putText(frame, message, (frame.shape[1] // 4, frame.shape[0] // 2),
                                     cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0, 0, 255), 2)
-                else:
+                    self.processing_gesture = False
+                elif latest_result != "Closed_Fist":
                     self.gesture_confidence_counter = 0
                     self.last_detected_gesture = latest_result
+                    self.processing_gesture = False
 
             # Handle object zooming
             if self.captured_objects:
@@ -557,7 +661,9 @@ class KivyCameraApp(App):
             # State machine logic
             if self.active_gesture_state == "DETECTING":
                 # Check for Thumbs down to capture
-                if latest_result == "Thumb_Down":
+                if latest_result == "Thumb_Down" and not self.processing_gesture:
+                    self.processing_gesture = True
+
                     # Capture and pause
                     self.captured_frame = frame.copy()
                     self.captured_objects = [obj for obj in latest_objects if
@@ -566,11 +672,12 @@ class KivyCameraApp(App):
                     if self.captured_objects:
                         message = f"Thumbs down detected! Pausing on {len(self.captured_objects)} objects. Make closed fist to reset."
                         self.active_gesture_state = "PAUSED"
-                        play_audio_sequence('assets/gotobject.wav', f"Object: {self.get_latest_objects()} detected.")
+                        play_audio_sequence((os.path.join(os.path.dirname(os.path.abspath(__file__)), "gotobject.wav")), f"Object: {self.get_latest_objects()} detected.")
                     else:
                         message = "Thumbs down detected, but no objects found. Still detecting."
 
                     self.layout.update_gesture_text(message)
+                    self.processing_gesture = False
                 else:
                     # Still in DETECTING state, waiting for Thumbs down
                     message = "Detection active - make Thumbs down to capture object"
@@ -583,7 +690,9 @@ class KivyCameraApp(App):
 
             # If not in DETECTING state, check for Thumb_Up
             else:
-                if latest_result == "Thumb_Up":
+                if latest_result == "Thumb_Up" and not self.processing_gesture:
+                    self.processing_gesture = True
+
                     if self.last_detected_gesture == "Thumb_Up":
                         self.gesture_confidence_counter += 1
                     else:
@@ -593,13 +702,15 @@ class KivyCameraApp(App):
                     # Enter DETECTING state after confirming Thumb_Up
                     if self.gesture_confidence_counter >= 3:
                         message = "Thumbs up detected! Object detection active. Make a thumbs down to capture."
-                        play_audio_sequence('assets/start.wav',
-                                            f"Ready to go. Make a thumbs down gesture to capture objects.")
                         self.active_gesture_state = "DETECTING"
                         self.gesture_timestamp = current_time
+                        play_audio_sequence((os.path.join(os.path.dirname(os.path.abspath(__file__)), 'start.wav')),
+                                            "Ready to go. Make a thumbs down gesture to capture objects.")
                     else:
                         message = "Keep holding thumbs up..."
-                else:
+
+                    self.processing_gesture = False
+                elif latest_result != "Thumb_Up":
                     # Reset confidence counter
                     self.gesture_confidence_counter = 0
                     self.last_detected_gesture = latest_result
