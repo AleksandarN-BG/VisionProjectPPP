@@ -25,7 +25,7 @@ class CameraView(BoxLayout):
         # Info label
         self.info_label = Label(
             text=self.gesture_text,
-            size_hint=(0.8, 1),
+            size_hint=(0.6, 1),  # Reduced from 0.8 to 0.6 to make room for the database button
             color=(1, 1, 1, 1),
             font_size='24sp',
             halign='center',
@@ -44,10 +44,19 @@ class CameraView(BoxLayout):
             background_color=(0.3, 0.3, 0.9, 0.8),
             font_size='24sp'
         )
+        
+        # Database button
+        self.db_button = Button(
+            text='Database',
+            size_hint=(0.2, 1),
+            background_color=(0.9, 0.3, 0.3, 0.8),  # Red background to distinguish from camera button
+            font_size='24sp'
+        )
 
         # Add components to bottom bar
         self.bottom_bar.add_widget(self.info_label)
         self.bottom_bar.add_widget(self.cam_button)
+        self.bottom_bar.add_widget(self.db_button)  # Add the database button
 
         # Add everything to main layout
         self.main_layout.add_widget(self.bottom_bar)
@@ -60,3 +69,4 @@ class CameraView(BoxLayout):
     def update_gesture_text(self, text):
         self.info_label.text = text
         self.gesture_text = text
+

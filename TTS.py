@@ -70,16 +70,29 @@ class TTSManager:
                     while pygame.mixer.music.get_busy():
                         time.sleep(0.1)
 
+                    # Properly release resources
+                    pygame.mixer.music.stop()
+                    pygame.mixer.music.unload()
                     pygame.mixer.quit()
+                    
+                    # Add a small delay to ensure resources are fully released
+                    time.sleep(0.2)
+                    
                 except Exception as e:
                     print(f"Error playing audio: {e}")
 
-                # Clean up after playback
-                try:
-                    if os.path.exists(temp_file):
-                        os.remove(temp_file)
-                except Exception as e:
-                    print(f"Error removing temp file: {e}")
+                # Clean up after playback with retry mechanism
+                max_retries = 3
+                for attempt in range(max_retries):
+                    try:
+                        if os.path.exists(temp_file):
+                            os.remove(temp_file)
+                            print(f"Successfully removed temp file: {temp_file}")
+                            break
+                    except Exception as e:
+                        print(f"Error removing temp file (attempt {attempt+1}/{max_retries}): {e}")
+                        if attempt < max_retries - 1:
+                            time.sleep(0.5)  # Wait before retrying
 
         except Exception as e:
             print(f"TTS error: {e}")
