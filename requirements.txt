@@ -1,0 +1,8 @@
+opencv-python
+mediapipe
+numpy
+kivy
+ultralytics
+gTTS
+pygame
+playsound
