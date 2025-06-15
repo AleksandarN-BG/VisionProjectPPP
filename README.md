@@ -25,7 +25,7 @@ VisionProjectPPP is a Python-based application that I made to fulfill the requir
    pip install -r requirements.txt
    ```
    
-3. Ensure you have a compatible camera connected to your system.
+3. Ensure you have a camera connected to your system.
 
 ## Usage
 
