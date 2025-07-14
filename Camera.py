@@ -114,7 +114,7 @@ class KivyCameraApp(App):
 
         # Initialize database
         self.db = ObjectDatabase()  # Use the new ObjectDatabase class
-        
+
         # Generate a unique session ID for this app run
         self.session_id = f"session_{uuid.uuid4().hex[:8]}"
 
@@ -317,7 +317,7 @@ class KivyCameraApp(App):
                     )
                 self.detected_objects_saved = True
                 print(f"Saved {len(self.captured_objects)} objects to database")
-                
+
                 # Provide audio feedback about saved objects
                 if len(self.captured_objects) > 0:
                     object_names = [obj.categories[0].category_name for obj in self.captured_objects]
@@ -327,7 +327,7 @@ class KivyCameraApp(App):
                             object_counts[name] += 1
                         else:
                             object_counts[name] = 1
-                    
+
                     object_summary = ", ".join([f"{count} {name}" for name, count in object_counts.items()])
                     play_audio_sequence(tts_text=f"Saved {object_summary} to database")
 
@@ -342,7 +342,7 @@ class KivyCameraApp(App):
                     best_hand_region = None
                     best_hand_score = 0
                     all_hand_regions = []
-                    
+
                     # Process all detected hands
                     for i, hand_landmarks in enumerate(hand_results.multi_hand_landmarks):
                         mp_drawing.draw_landmarks(
@@ -374,10 +374,10 @@ class KivyCameraApp(App):
 
                         # Draw rectangle around hand region
                         cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (255, 105, 180), 2)
-                        
+
                         # Label the hand
                         hand_label = f"Hand {i+1}"
-                        cv2.putText(frame, hand_label, (x_min, y_min - 10), 
+                        cv2.putText(frame, hand_label, (x_min, y_min - 10),
                                     cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 105, 180), 2)
 
                         # Extract hand region for gesture recognition
@@ -386,19 +386,19 @@ class KivyCameraApp(App):
                         if hand_region.size > 0 and len(hand_region.shape) == 3 and hand_region.shape[2] == 3:
                             hand_region_copy = np.ascontiguousarray(hand_region, dtype=np.uint8)
                             all_hand_regions.append((hand_region_copy, (x_min, y_min)))
-                            
+
                             # Calculate a score based on hand size and position
                             # Higher score for larger and more centered hands
                             hand_size = (x_max - x_min) * (y_max - y_min)
                             center_distance = abs((x_min + x_max) / 2 - w/2) + abs((y_min + y_max) / 2 - h/2)
                             center_factor = 1 - (center_distance / (w + h))
                             hand_score = hand_size * center_factor
-                            
+
                             # Check if this hand is better than the previous best
                             if hand_score > best_hand_score:
                                 best_hand_score = hand_score
                                 best_hand_region = hand_region_copy
-                    
+
                     # Try to process both hands for gesture recognition
                     if timestamp_ms > self.last_timestamp:
                         for i, (hand_region, (x, y)) in enumerate(all_hand_regions):
@@ -410,7 +410,7 @@ class KivyCameraApp(App):
                                             0.7, (0, 255, 0), 2)
                             except TypeError as e:
                                 print(f"Error creating MediaPipe image for hand {i+1}: {e}")
-                        
+
                         self.last_timestamp = timestamp_ms
                 else:
                     # No hands detected, use full frame
@@ -500,7 +500,7 @@ class KivyCameraApp(App):
                 best_hand_region = None
                 best_hand_score = 0
                 all_hand_regions = []
-                
+
                 # Process all detected hands
                 for i, hand_landmarks in enumerate(hand_results.multi_hand_landmarks):
                     mp_drawing.draw_landmarks(
@@ -532,10 +532,10 @@ class KivyCameraApp(App):
 
                     # Draw rectangle around hand region
                     cv2.rectangle(frame, (x_min, y_min), (x_max, y_max), (255, 105, 180), 2)
-                    
+
                     # Label the hand
                     hand_label = f"Hand {i+1}"
-                    cv2.putText(frame, hand_label, (x_min, y_min - 10), 
+                    cv2.putText(frame, hand_label, (x_min, y_min - 10),
                                 cv2.FONT_HERSHEY_SIMPLEX, 0.7, (255, 105, 180), 2)
 
                     # Extract hand region for gesture recognition
@@ -544,19 +544,19 @@ class KivyCameraApp(App):
                     if hand_region.size > 0 and len(hand_region.shape) == 3 and hand_region.shape[2] == 3:
                         hand_region_copy = np.ascontiguousarray(hand_region, dtype=np.uint8)
                         all_hand_regions.append((hand_region_copy, (x_min, y_min)))
-                        
+
                         # Calculate a score based on hand size and position
                         # Higher score for larger and more centered hands
                         hand_size = (x_max - x_min) * (y_max - y_min)
                         center_distance = abs((x_min + x_max) / 2 - w/2) + abs((y_min + y_max) / 2 - h/2)
                         center_factor = 1 - (center_distance / (w + h))
                         hand_score = hand_size * center_factor
-                        
+
                         # Check if this hand is better than the previous best
                         if hand_score > best_hand_score:
                             best_hand_score = hand_score
                             best_hand_region = hand_region_copy
-                    
+
                     # Try to process both hands for gesture recognition
                     if timestamp_ms > self.last_timestamp:
                         for i, (hand_region, (x, y)) in enumerate(all_hand_regions):
@@ -568,7 +568,7 @@ class KivyCameraApp(App):
                                             0.7, (0, 255, 0), 2)
                             except TypeError as e:
                                 print(f"Error creating MediaPipe image for hand {i+1}: {e}")
-                        
+
                         self.last_timestamp = timestamp_ms
             else:
                 # No hands detected, use full frame for gesture recognition
@@ -746,10 +746,10 @@ class KivyCameraApp(App):
         try:
             # Fetch all objects from the database
             objects = self.db.get_all_objects()
-            
+
             # Create a layout for the popup content
             content = BoxLayout(orientation='vertical', spacing=10, padding=10)
-            
+
             if not objects:
                 content.add_widget(Label(text="No objects found in the database."))
             else:
@@ -757,56 +757,56 @@ class KivyCameraApp(App):
                 scroll_view = ScrollView()
                 grid = GridLayout(cols=1, spacing=5, size_hint_y=None)
                 grid.bind(minimum_height=grid.setter('height'))
-                
+
                 # Get object counts for summary display
                 object_counts = self.db.get_object_counts()
                 summary_text = "Database Summary:\n" + "\n".join([f"{name}: {count}" for name, count in object_counts.items()])
                 grid.add_widget(Label(text=summary_text, size_hint_y=None, height=100))
-                
+
                 grid.add_widget(Label(text="--- Individual Object Records ---", size_hint_y=None, height=40))
-                
+
                 for obj in objects:
                     # Create a layout for each object entry
-                    obj_layout = BoxLayout(orientation='horizontal', 
-                                           size_hint_y=None, 
+                    obj_layout = BoxLayout(orientation='horizontal',
+                                           size_hint_y=None,
                                            height=50,
                                            spacing=5)
-                    
+
                     # Label with object info
                     confidence = obj['confidence'] * 100 if obj['confidence'] <= 1 else obj['confidence']
                     label_text = f"ID: {obj['id']} | {obj['name']} | Conf: {confidence:.1f}% | {obj['timestamp'].split('T')[0]}"
                     obj_layout.add_widget(Label(text=label_text, size_hint_x=0.8))
-                    
+
                     # Delete button
-                    delete_btn = Button(text="Delete", 
+                    delete_btn = Button(text="Delete",
                                         size_hint_x=0.2,
                                         background_color=(1, 0.5, 0.5, 1))
                     delete_btn.object_id = obj['id']  # Store object ID for deletion
                     delete_btn.bind(on_release=self.delete_object)
                     obj_layout.add_widget(delete_btn)
-                    
+
                     grid.add_widget(obj_layout)
-                
+
                 scroll_view.add_widget(grid)
                 content.add_widget(scroll_view)
-            
+
             # Add a close button
             close_btn = Button(text="Close", size_hint_y=None, height=50)
             content.add_widget(close_btn)
-            
+
             # Create and open the popup
-            popup = Popup(title="Object Detection Database", 
+            popup = Popup(title="Object Detection Database",
                           content=content,
                           size_hint=(0.8, 0.8))
-            
+
             # Store popup reference as an instance variable
             self.db_popup = popup
-            
+
             # Bind the close button
             close_btn.bind(on_release=popup.dismiss)
-            
+
             popup.open()
-            
+
         except Exception as e:
             print(f"Error showing database popup: {e}")
             # Show error popup
@@ -820,14 +820,14 @@ class KivyCameraApp(App):
         try:
             object_id = instance.object_id
             success = self.db.delete_object(object_id)
-            
+
             if success:
                 # Show confirmation popup
                 confirm = Popup(title="Success",
                                content=Label(text=f"Object ID {object_id} deleted successfully."),
                                size_hint=(0.7, 0.3))
                 confirm.open()
-                
+
                 # Close current popup and reopen with updated data
                 if hasattr(self, 'db_popup'):
                     self.db_popup.dismiss()
@@ -841,7 +841,7 @@ class KivyCameraApp(App):
                              content=Label(text=f"Failed to delete object ID {object_id}."),
                              size_hint=(0.7, 0.3))
                 error.open()
-                
+
         except Exception as e:
             print(f"Error deleting object: {e}")
             # Show error popup
